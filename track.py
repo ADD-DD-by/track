@@ -1168,6 +1168,83 @@ THRESHOLD_MAP_LABELED = {
     }
 }
 
+# ======================================================
+# 统一误差（cm → inch, kg → lb 自动换算）
+# 长/宽/高：2cm 误差
+# 周长：8cm 误差
+# 重量：1kg 误差
+# ======================================================
+
+def cm_to_in(x):
+    return x / 2.54
+
+def kg_to_lb(x):
+    return x * 2.20462262
+
+def get_margin_value(category, key_type):
+    """
+    key_type ∈ {L, W, H, G, WT}
+    返回对应大类的误差值（负方向）。
+    """
+
+    # --- 重量（1kg） ---
+    if key_type == "WT":
+        margin_kg = -1.0
+        if category in ["US-FBM", "US-FBA", "CA-FBA"]:
+            return kg_to_lb(margin_kg)  # -2.20462 lb
+        else:
+            return margin_kg            # -1 kg
+
+    # --- 周长（8cm） ---
+    if key_type == "G":
+        margin_cm = -8.0
+        if category in ["US-FBM", "US-FBA", "CA-FBA"]:
+            return cm_to_in(margin_cm)  # -3.1496 inch
+        else:
+            return margin_cm
+
+    # --- 长宽高（2cm） ---
+    margin_cm = -2.0
+    if category in ["US-FBM", "US-FBA", "CA-FBA"]:
+        return cm_to_in(margin_cm)      # -0.787 inch
+    else:
+        return margin_cm                # -2 cm
+        
+# ======================================================
+# 临界值检查（只要落在 threshold+margin ~ threshold 之间）
+# ======================================================
+
+def check_threshold_near(category, key_type, value):
+    if category not in THRESHOLD_MAP_LABELED:
+        return None
+    if key_type not in THRESHOLD_MAP_LABELED[category]:
+        return None
+
+    margin = get_margin_value(category, key_type)
+
+    thresholds = THRESHOLD_MAP_LABELED[category][key_type]
+
+    msg_list = []
+
+    for th_val, desc in thresholds.items():
+        lower = th_val + margin
+        upper = th_val
+
+        if lower <= value <= upper:
+            msg_list.append(f"⚠️ 接近临界：{key_type}={value:.2f}，靠近【{desc}：{th_val}】")
+
+    if not msg_list:
+        return None
+
+    return "\n".join(msg_list)
+
+
+
+
+
+
+
+
 def check_threshold_all_labeled(category, L, W, H, WT, G):
     msgs = []
     if category not in THRESHOLD_MAP_LABELED:
@@ -1245,6 +1322,9 @@ if st.button("自动判断所有渠道"):
     else:
         girth = length + 2 * (width + height)
 
+        # ======================================================
+        # 显示内部尺寸
+        # ======================================================
         st.write(
             f"**系统用于判断的内部尺寸：** "
             f"L = {length:.2f} {base_len_unit}，"
@@ -1253,6 +1333,29 @@ if st.button("自动判断所有渠道"):
             f"Weight = {weight:.2f} {base_wt_unit}，"
             f"Girth = {girth:.2f} {base_len_unit}"
         )
+        
+        # ======================================================
+        # 全维度临界值提示
+        # ======================================================
+        dim_values = {
+            "L": length,
+            "W": width,
+            "H": height,
+            "G": girth,
+            "WT": weight
+        }
+        
+        threshold_messages = []
+        
+        for k, v in dim_values.items():
+            msg = check_threshold_near(category, k, v)
+            if msg:
+                threshold_messages.append(msg)
+        
+        # 若存在多个临界项，一次性输出
+        if threshold_messages:
+            st.warning("🚨 **检测到以下临界风险值**：\n" + "\n".join(threshold_messages))
+
     # ===== 全品类临界提醒 =====
     threshold_msgs = check_threshold_all_labeled(category, length, width, height, weight, girth)
     for m in threshold_msgs:
