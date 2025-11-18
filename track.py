@@ -163,15 +163,13 @@ def rule_fedex_ground(L, W, H, Wt, G):
     dim = calc_dim_weight(L, W, H, 250)
     charge = max(dim, Wt)
 
-    cond_std = (L <= 48 and W <= 30 and G <= 105 and Wt <= 50)
-    cond_ahs = (48 < L <= 96 or 30 < W <= 96 or 105 < G <= 130 or 50 < Wt <= 150)
-    cond_lps = ((96 < L <= 108 or 130 < G <= 165) and Wt <= 150)
     cond_block = (L > 108 or G > 165 or Wt > 150)
+    cond_std   = (L <= 48 and W <= 30 and G <= 105 and Wt <= 50)
+    cond_ahs   = (48 < L <= 96 or 30 < W <= 96 or 105 < G <= 130 or 50 < Wt <= 150)
+    cond_lps   = ((96 < L <= 108 or 130 < G <= 165) and Wt <= 150)
 
-    # 先判断不可发（前提：未命中任何可发件型）
-    if cond_block and not (cond_std or cond_ahs or cond_lps):
+    if cond_block:
         return make_result("FEDEX-Ground", False, "-", dim, charge, "超过最大限制")
-
     if cond_std:
         return make_result("FEDEX-Ground", True, "标准件", dim, charge)
     if cond_ahs:
@@ -186,14 +184,13 @@ def rule_ups_ground(L, W, H, Wt, G):
     dim = calc_dim_weight(L, W, H, 223)
     charge = max(dim, Wt)
 
-    cond_std = (L <= 48 and W <= 30 and G <= 105 and Wt <= 50)
-    cond_ahs = (48 < L <= 96 or 30 < W <= 96 or 105 < G <= 130 or 50 < Wt <= 150)
-    cond_lps = ((96 < L <= 108 or 130 < G <= 165) and Wt <= 150)
     cond_block = (L > 108 or G > 165 or Wt > 150)
+    cond_std   = (L <= 48 and W <= 30 and G <= 105 and Wt <= 50)
+    cond_ahs   = (48 < L <= 96 or 30 < W <= 96 or 105 < G <= 130 or 50 < Wt <= 150)
+    cond_lps   = ((96 < L <= 108 or 130 < G <= 165) and Wt <= 150)
 
-    if cond_block and not (cond_std or cond_ahs or cond_lps):
+    if cond_block:
         return make_result("UPS-Ground", False, "-", dim, charge, "超过最大限制")
-
     if cond_std:
         return make_result("UPS-Ground", True, "标准件", dim, charge)
     if cond_ahs:
@@ -204,67 +201,62 @@ def rule_ups_ground(L, W, H, Wt, G):
     return make_result("UPS-Ground", False, "-", dim, charge, "不符合规则")
 
 
+
 def rule_amazon_common(L, W, H, Wt, G, channel_name):
-    postal_dim = calc_dim_weight(L, W, H, 250)
-    gc_dim = calc_dim_weight(L, W, H, 194)
+    postal_dim  = calc_dim_weight(L, W, H, 250)
+    gc_dim      = calc_dim_weight(L, W, H, 194)
     postal_charge = max(postal_dim, Wt)
-    gc_charge = max(gc_dim, Wt)
+    gc_charge     = max(gc_dim, Wt)
 
-    cond_std = (L <= 37 and W <= 30 and H <= 24 and G <= 105
-                and postal_charge <= 50 and gc_charge <= 50)
-    cond_nonstd = (37 < L <= 47 or 30 < W <= 33 or H > 24)
-    cond_lps = (47 < L <= 59 or W > 42 or (105 < G <= 126)
-                or postal_charge > 50 or gc_charge > 50)
-
-    # 原始两个不可发条件
     cond_block_postal = (L > 59 or W > 33 or H > 33 or G > 126 or postal_charge > 50)
-    cond_block_gc = (L > 48 or W > 30 or G > 105 or gc_charge > 50)
+    cond_block_gc     = (L > 48 or W > 30 or G > 105 or gc_charge > 50)
 
-    # 先判断不可发（但只在没有命中任何可发件型时生效）
-    if not (cond_std or cond_nonstd or cond_lps):
-        if cond_block_postal:
-            return make_result(channel_name, False, "-", postal_dim, postal_charge, "西邮不可发")
-        if cond_block_gc:
-            return make_result(channel_name, False, "-", postal_dim, postal_charge, "谷仓不可发")
+    cond_std = (
+        L <= 37 and W <= 30 and H <= 24 and G <= 105
+        and postal_charge <= 50 and gc_charge <= 50
+    )
+    cond_nonstd = (37 < L <= 47 or 30 < W <= 33 or H > 24)
+    cond_lps    = (47 < L <= 59 or W > 42 or (105 < G <= 126)
+                   or postal_charge > 50 or gc_charge > 50)
 
-    # 再判断各类可发件型
+    # ① 不可发优先（任何一个 Block 都触发）
+    if cond_block_postal or cond_block_gc:
+        return make_result(channel_name, False, "-", postal_dim, postal_charge, "超限不可发")
+
+    # ② 标准
     if cond_std:
         return make_result(channel_name, True, "标准件", postal_dim, postal_charge)
+
+    # ③ 非标准件
     if cond_nonstd:
-        return make_result(
-            channel_name,
-            True,
-            "一般超尺寸超重（Non-Standard Fee）",
-            postal_dim,
-            postal_charge,
-        )
+        return make_result(channel_name, True, "一般超尺寸超重（Non-Standard）", postal_dim, postal_charge)
+
+    # ④ LPS 超尺寸
     if cond_lps:
         return make_result(channel_name, True, "超尺寸（LPS）", postal_dim, postal_charge)
 
-    # 全部都不命中
     return make_result(channel_name, False, "-", postal_dim, postal_charge, "不符合规则")
 
 
 def rule_amazon_ground(L, W, H, Wt, G):
     return rule_amazon_common(L, W, H, Wt, G, "Amazon-Ground")
 
-
 def rule_amazon_shipping(L, W, H, Wt, G):
     return rule_amazon_common(L, W, H, Wt, G, "Amazon-Shipping")
 
 
+
 def rule_yun_ground(L, W, H, Wt, G):
-    dim = 0.0
+    dim = 0
     charge = Wt
 
-    cond_std = (L <= 48 and W <= 30 and G <= 105 and Wt <= 50)
-    cond_ahs = (48 < L <= 96 or 30 < W <= 96 or 105 < G <= 130 or 50 < Wt <= 150)
-    cond_lps = ((96 < L <= 108 or 130 < G <= 165) and Wt <= 150)
     cond_block = (L > 108 or G > 165 or Wt > 150)
+    cond_std   = (L <= 48 and W <= 30 and G <= 105 and Wt <= 50)
+    cond_ahs   = (48 < L <= 96 or 30 < W <= 96 or 105 < G <= 130 or 50 < Wt <= 150)
+    cond_lps   = ((96 < L <= 108 or 130 < G <= 165) and Wt <= 150)
 
-    if cond_block and not (cond_std or cond_ahs or cond_lps):
+    if cond_block:
         return make_result("YUN-Ground", False, "-", dim, charge, "超过最大限制")
-
     if cond_std:
         return make_result("YUN-Ground", True, "标准件", dim, charge)
     if cond_ahs:
@@ -272,26 +264,26 @@ def rule_yun_ground(L, W, H, Wt, G):
     if cond_lps:
         return make_result("YUN-Ground", True, "超尺寸（LPS）", dim, charge)
 
-    return make_result("YUN-Ground", False, "-", dim, charge, "不符合规则")
+    return make_result("YUN-Ground", False, "-", dim, charge)
 
 
 def rule_wp_ground(L, W, H, Wt, G):
     dim = calc_dim_weight(L, W, H, 250)
     charge = max(dim, Wt)
 
-    cond_std = (L <= 96 and G <= 130 and charge <= 150)
-    cond_oversize = (96 < L <= 108 or G > 130)
     cond_block = (L > 108 or charge > 150)
+    cond_std   = (L <= 96 and G <= 130 and charge <= 150)
+    cond_over  = (96 < L <= 108 or G > 130)
 
-    if cond_block and not (cond_std or cond_oversize):
+    if cond_block:
         return make_result("WP-Ground", False, "-", dim, charge, "超过最大限制")
-
     if cond_std:
         return make_result("WP-Ground", True, "标准件", dim, charge)
-    if cond_oversize:
+    if cond_over:
         return make_result("WP-Ground", True, "超尺寸", dim, charge)
 
     return make_result("WP-Ground", False, "-", dim, charge)
+
 
 
 def rule_usps_ground(L, W, H, Wt, G):
@@ -299,13 +291,12 @@ def rule_usps_ground(L, W, H, Wt, G):
     charge = max(dim, Wt)
     vol = volume_cm3_from_inch(L, W, H)
 
-    cond_std = (L <= 22 and G <= 108 and Wt <= 50 and charge <= 70)
-    cond_general = (L > 22 or vol > 55000)
     cond_block = (G > 108 or charge > 70)
+    cond_std   = (L <= 22 and G <= 108 and Wt <= 50 and charge <= 70)
+    cond_general = (L > 22 or vol > 55000)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("USPS-Ground Advantage", False, "-", dim, charge, "超过限制")
-
     if cond_std:
         return make_result("USPS-Ground Advantage", True, "标准件", dim, charge)
     if cond_general:
@@ -314,16 +305,16 @@ def rule_usps_ground(L, W, H, Wt, G):
     return make_result("USPS-Ground Advantage", False, "-", dim, charge)
 
 
+
 def rule_ups_mi_small(L, W, H, Wt, G):
     vol = volume_cm3_from_inch(L, W, H)
 
+    cond_block = (L > 27 or W > 16 or H > 16 or G > 50 or Wt > 10)
     cond_std = (L <= 22 and Wt <= 10)
     cond_general = (22 < L <= 27) or (vol > 55000)
-    cond_block = (L > 27 or W > 16 or H > 16 or G > 50 or Wt > 10)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("UPS MI轻小", False, "-", vol, Wt, "超过限制")
-
     if cond_std:
         return make_result("UPS MI轻小", True, "标准件", vol, Wt)
     if cond_general:
@@ -337,13 +328,12 @@ def rule_dhl_small(L, W, H, Wt, G):
     charge = max(dim, Wt)
     vol = volume_cm3_from_inch(L, W, H)
 
-    cond_std = (L <= 22 and G <= 50 and Wt <= 1)
-    cond_general = (22 < L <= 27) or (vol > 55000)
     cond_block = (L > 27 or G > 50 or Wt > 1)
+    cond_std   = (L <= 22 and G <= 50 and Wt <= 1)
+    cond_general = (22 < L <= 27) or (vol > 55000)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("DHL-Local-Small", False, "-", dim, charge, "超过限制")
-
     if cond_std:
         return make_result("DHL-Local-Small", True, "标准件", dim, charge)
     if cond_general:
@@ -351,18 +341,16 @@ def rule_dhl_small(L, W, H, Wt, G):
 
     return make_result("DHL-Local-Small", False, "-", dim, charge)
 
-
 def rule_gc_parcel(L, W, H, Wt, G):
     dim = calc_dim_weight(L, W, H, 223)
     charge = max(dim, Wt)
     vol = volume_cm3_from_inch(L, W, H)
 
-    cond_std = (L < 22 and W < 16 and H <= 16 and Wt <= 25)
     cond_block = (L >= 22 or W >= 16 or H > 16 or Wt >= 25 or vol >= 56000)
+    cond_std = (L < 22 and W < 16 and H <= 16 and Wt <= 25)
 
-    if cond_block and not cond_std:
+    if cond_block:
         return make_result("GC-Parcel", False, "-", dim, charge, "超过限制")
-
     if cond_std:
         return make_result("GC-Parcel", True, "标准件", dim, charge)
 
@@ -373,13 +361,12 @@ def rule_fedex_smartpost(L, W, H, Wt, G):
     dim = calc_dim_weight(L, W, H, 250)
     charge = max(dim, Wt)
 
+    cond_block = (L > 60 or G > 130 or charge > 70)
     cond_std = (6 < L <= 27 and 4 < W <= 17 and 1 < H <= 17 and G <= 108 and charge <= 70)
     cond_general = (27 < L <= 60) or (W > 17) or (35 < Wt <= 71)
-    cond_block = (L > 60 or G > 130 or charge > 70)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("FEDEX-Smartpost", False, "-", dim, charge, "超过限制")
-
     if cond_std:
         return make_result("FEDEX-Smartpost", True, "标准件", dim, charge)
     if cond_general:
@@ -392,7 +379,6 @@ def rule_fedex_economy(L, W, H, Wt, G):
     dim = calc_dim_weight(L, W, H, 194)
     dim_base = dim
 
-    # 计算 charge（和你原来的完全一致）
     if Wt < 20 and 84 <= G < 107 and dim < 20:
         charge = 20
     elif Wt < 70 and 107 <= G < 130 and dim < 70:
@@ -400,13 +386,12 @@ def rule_fedex_economy(L, W, H, Wt, G):
     else:
         charge = max(dim, Wt)
 
-    cond_std = (L <= 27 and W <= 17 and H <= 17 and G <= 130 and Wt <= 9)
-    cond_general = (27 < L <= 48) or (17 < W <= 30) or (17 < H <= 30)
     cond_block = (L > 60 or G > 130 or charge > 70)
+    cond_std   = (L <= 27 and W <= 17 and H <= 17 and G <= 130 and Wt <= 9)
+    cond_general = (27 < L <= 48) or (17 < W <= 30) or (17 < H <= 30)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("FEDEX-Economy", False, "-", dim_base, charge, "超过限制")
-
     if cond_std:
         return make_result("FEDEX-Economy", True, "标准件", dim_base, charge)
     if cond_general:
@@ -415,42 +400,39 @@ def rule_fedex_economy(L, W, H, Wt, G):
     return make_result("FEDEX-Economy", False, "-", dim_base, charge)
 
 
+
 def rule_ups_ground_saver(L, W, H, Wt, G):
     vol = volume_cm3_from_inch(L, W, H)
-    if vol > 28000:
-        dim = calc_dim_weight(L, W, H, 125)
-    else:
-        dim = calc_dim_weight(L, W, H, 167)
+    dim = calc_dim_weight(L, W, H, 125) if vol > 28000 else calc_dim_weight(L, W, H, 167)
     charge = max(dim, Wt)
 
+    cond_block = (L > 108 or G > 165 or charge > 9)
     cond_std = (L <= 22 and G <= 105 and 1 < charge <= 9 and vol <= 56000)
     cond_general = (22 < L <= 48) or (vol > 56000)
-    cond_oversize = (48 < L <= 108) or (W > 30) or (vol > 141500)
-    cond_block = (L > 108 or G > 165 or charge > 9)
+    cond_over = (48 < L <= 108) or (W > 30) or (vol > 141500)
 
-    if cond_block and not (cond_std or cond_general or cond_oversize):
+    if cond_block:
         return make_result("UPS-Ground Saver", False, "-", dim, charge, "超过限制")
-
     if cond_std:
         return make_result("UPS-Ground Saver", True, "标准件", dim, charge)
     if cond_general:
         return make_result("UPS-Ground Saver", True, "一般超尺寸", dim, charge)
-    if cond_oversize:
+    if cond_over:
         return make_result("UPS-Ground Saver", True, "超尺寸", dim, charge)
 
     return make_result("UPS-Ground Saver", False, "-", dim, charge)
 
 
+
 def rule_ups_mi(L, W, H, Wt, G):
     vol = volume_cm3_from_inch(L, W, H)
 
-    cond_std = (L <= 22 and 1 < Wt <= 10)
-    cond_general = (22 < L <= 27) or (vol > 55000)
     cond_block = (L > 27 or W > 16 or H > 16 or G > 50 or Wt > 10)
+    cond_std   = (L <= 22 and 1 < Wt <= 10)
+    cond_general = (22 < L <= 27) or (vol > 55000)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("UPS MI", False, "-", vol, Wt, "超过限制")
-
     if cond_std:
         return make_result("UPS MI", True, "标准件", vol, Wt)
     if cond_general:
@@ -464,13 +446,12 @@ def rule_usps_priority(L, W, H, Wt, G):
     charge = max(dim, Wt)
     vol = volume_cm3_from_inch(L, W, H)
 
-    cond_std = (L <= 22 and charge <= 70)
-    cond_general = (L > 22 or vol > 55000)
     cond_block = (G > 50 or charge > 70)
+    cond_std   = (L <= 22 and charge <= 70)
+    cond_general = (L > 22 or vol > 55000)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("USPS Priority", False, "-", dim, charge, "超过限制")
-
     if cond_std:
         return make_result("USPS Priority", True, "标准件", dim, charge)
     if cond_general:
@@ -478,25 +459,24 @@ def rule_usps_priority(L, W, H, Wt, G):
 
     return make_result("USPS Priority", False, "-", dim, charge)
 
-
 def rule_dhl_big(L, W, H, Wt, G):
     dim = calc_dim_weight(L, W, H, 166)
     charge = max(dim, Wt)
     vol = volume_cm3_from_inch(L, W, H)
 
-    cond_std = (L <= 22 and charge <= 25 and G <= 50 and vol <= 56000)
-    cond_general = (22 < L <= 27) or (50 < G <= 84) or (vol > 56000)
     cond_block = (L > 27 or G > 84 or charge > 25)
+    cond_std   = (L <= 22 and charge <= 25 and G <= 50 and vol <= 56000)
+    cond_general = (22 < L <= 27) or (50 < G <= 84) or (vol > 56000)
 
-    if cond_block and not (cond_std or cond_general):
+    if cond_block:
         return make_result("DHL-Local-Big", False, "-", dim, charge, "超过限制")
-
     if cond_std:
         return make_result("DHL-Local-Big", True, "标准件", dim, charge)
     if cond_general:
         return make_result("DHL-Local-Big", True, "一般超尺寸超重", dim, charge)
 
     return make_result("DHL-Local-Big", False, "-", dim, charge)
+
 
 US_FBM_CHANNELS = [
     rule_fedex_ground,
@@ -596,20 +576,18 @@ def rule_dhl_de_dom(L_cm, W_cm, H_cm, W_kg, _Gignored):
     L, W, H, G, V = _round_de_dims(L_cm, W_cm, H_cm)
     charge = W_kg
 
-    # ① 不可发（硬性）
+    # ① 不可发
     if L > 200 or G > 360 or W_kg > 31.5:
         return make_result("DHL德国包裹", False, "-", V, charge, "超过 DHL 最大限制")
 
     # ② 标准件
-    if (15 < L <= 120 and 11 < W <= 60 and 1 < H <= 60
-        and G <= 360 and 0 < W_kg <= 31.5):
+    if (15 < L <= 120 and 11 < W <= 60 and 1 < H <= 60 and G <= 360):
         return make_result("DHL德国包裹", True, "标准件", V, charge)
 
-    # ③ 大件（一般超尺寸超重）
+    # ③ 大件
     if (120 < L <= 200 or W > 60 or H > 60):
         return make_result("DHL德国包裹", True, "一般超尺寸超重", V, charge)
 
-    # ④ 兜底
     return make_result("DHL德国包裹", False, "-", V, charge, "不符合 DHL 规则")
 
 
