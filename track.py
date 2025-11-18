@@ -1312,97 +1312,82 @@ def get_channels(category, weight_value, L=None, W=None, H=None, G=None):
 # ======================================================
 # 自动判断按钮 + 推荐渠道
 # ======================================================
+# ======================================================
+# 自动判断按钮（继续渠道判断，但显示临界风险提示）
+# ======================================================
 if st.button("自动判断所有渠道"):
+
+    # ---------- 1. 解析单位 ----------
     try:
         length, width, height, weight, base_len_unit, base_wt_unit = convert_units_for_category(
             category, L_raw, W_raw, H_raw, WT_raw
         )
     except Exception as e:
-        st.error("请输入合法的数字或带单位的数值，例如：10、10cm、10in、2kg、2lb")
-    else:
-        girth = length + 2 * (width + height)
+        st.error("❗ 输入格式错误，请使用：10、10cm、10in、2kg、2lb 等格式")
+        st.stop()
 
-        # ======================================================
-        # 显示内部尺寸
-        # ======================================================
-        st.write(
-            f"**系统用于判断的内部尺寸：** "
-            f"L = {length:.2f} {base_len_unit}，"
-            f"W = {width:.2f} {base_len_unit}，"
-            f"H = {height:.2f} {base_len_unit}，"
-            f"Weight = {weight:.2f} {base_wt_unit}，"
-            f"Girth = {girth:.2f} {base_len_unit}"
+    girth = length + 2 * (width + height)
+
+    # ---------- 2. 显示内部尺寸 ----------
+    st.write(
+        f"**系统用于判断的内部尺寸：** "
+        f"L = {length:.2f} {base_len_unit}，"
+        f"W = {width:.2f} {base_len_unit}，"
+        f"H = {height:.2f} {base_len_unit}，"
+        f"Weight = {weight:.2f} {base_wt_unit}，"
+        f"Girth = {girth:.2f} {base_len_unit}"
+    )
+
+    # ---------- 3. 进行临界风险提示（不阻断渠道判断） ----------
+    risks = check_threshold_warnings(category, length, width, height, girth, weight)
+
+    if risks:
+        st.warning("⚠️ **临界风险提示（不影响渠道判断）：**\n" + "\n".join(risks))
+
+    # ---------- 4. 获取渠道列表 ----------
+    channels, msg = get_channels(
+        category,
+        weight,
+        length,
+        width,
+        height,
+        girth
+    )
+
+    if msg:
+        st.info(msg)
+
+    if len(channels) == 0:
+        st.warning("当前大类下没有可计算的渠道（可能未配置或重量超范围）。")
+        st.stop()
+
+    # ---------- 5. 计算每个渠道 ----------
+    results = []
+    for func in channels:
+        result = func(length, width, height, weight, girth)
+        results.append(result)
+
+    df = pd.DataFrame(results)
+    df["推荐"] = ""
+
+    # ---------- 6. 推荐渠道：计费重最小，其次体积重 ----------
+    df_ok = df[df["可发"] == "是"].copy()
+    if not df_ok.empty:
+        df_ok["_计费重_num"] = pd.to_numeric(df_ok["计费重"], errors="coerce")
+        df_ok["_体积重_num"] = pd.to_numeric(df_ok["体积重"], errors="coerce")
+        df_ok = df_ok.sort_values(
+            by=["_计费重_num", "_体积重_num"],
+            ascending=[True, True]
         )
-        
-        # ======================================================
-        # 全维度临界值提示
-        # ======================================================
-        dim_values = {
-            "L": length,
-            "W": width,
-            "H": height,
-            "G": girth,
-            "WT": weight
-        }
-        
-        threshold_messages = []
-        
-        for k, v in dim_values.items():
-            msg = check_threshold_near(category, k, v)
-            if msg:
-                threshold_messages.append(msg)
-        
-        # 若存在多个临界项，一次性输出
-        if threshold_messages:
-            st.warning("🚨 **检测到以下临界风险值**：\n" + "\n".join(threshold_messages))
+        best_channel = df_ok.iloc[0]["渠道"]
+        df.loc[df["渠道"] == best_channel, "推荐"] = "⭐ 推荐"
 
-    # ===== 全品类临界提醒 =====
-    threshold_msgs = check_threshold_all_labeled(category, length, width, height, weight, girth)
-    for m in threshold_msgs:
-        st.warning(m)
+        st.subheader("⭐ 推荐渠道")
+        st.dataframe(df[df["推荐"] == "⭐ 推荐"])
 
+    # ---------- 7. 渠道输出 ----------
+    st.subheader("✅ 可发渠道")
+    st.dataframe(df[df["可发"] == "是"])
 
-        channels, msg = get_channels(
-            category,
-            weight,
-            length,
-            width,
-            height,
-            girth
-        )
-
-
-        if msg:
-            st.info(msg)
-
-        if len(channels) == 0:
-            st.warning("当前大类下没有可计算的渠道（可能未配置或重量超范围）。")
-        else:
-            results = []
-            for func in channels:
-                result = func(length, width, height, weight, girth)
-                results.append(result)
-
-            df = pd.DataFrame(results)
-            df["推荐"] = ""
-
-            # 推荐渠道：在可发渠道里选计费重最小，其次体积重最小
-            df_ok = df[df["可发"] == "是"].copy()
-            if not df_ok.empty:
-                df_ok["_计费重_num"] = pd.to_numeric(df_ok["计费重"], errors="coerce")
-                df_ok["_体积重_num"] = pd.to_numeric(df_ok["体积重"], errors="coerce")
-                df_ok = df_ok.sort_values(
-                    by=["_计费重_num", "_体积重_num"],
-                    ascending=[True, True]
-                )
-                best_channel = df_ok.iloc[0]["渠道"]
-                df.loc[df["渠道"] == best_channel, "推荐"] = "⭐ 推荐"
-
-                st.subheader("⭐ 推荐渠道")
-                st.dataframe(df[df["推荐"] == "⭐ 推荐"])
-
-            st.subheader("✅ 可发渠道")
-            st.dataframe(df[df["可发"] == "是"])
-
-            st.subheader("❌ 不可发渠道")
-            st.dataframe(df[df["可发"] == "否"])
+    st.subheader("❌ 不可发渠道")
+    st.dataframe(df[df["可发"] == "否"])
