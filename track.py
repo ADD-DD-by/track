@@ -1169,6 +1169,89 @@ THRESHOLD_MAP_LABELED = {
 }
 
 # ======================================================
+# 临界误差定义
+# ======================================================
+THRESHOLD_LEN_ERR_CM = 2         # 长宽高 ±2cm
+THRESHOLD_WT_ERR_KG  = 1         # 重量 ±1kg
+THRESHOLD_G_ERR_CM   = 8         # 周长 ±8cm
+
+
+# ======================================================
+# 根据国家单位体系转换误差（inch/lb -> cm/kg）
+# ======================================================
+def normalize_threshold_for_category(category):
+    """
+    返回：长度误差、重量误差、周长误差
+    根据国家自动转换：
+    - US/CA 系列 inch → cm
+    - US/CA 系列 lb → kg
+    """
+
+    if category in ["US-FBM", "US-FBA", "CA-FBA"]:
+        # long单位 inch -> cm
+        len_err = THRESHOLD_LEN_ERR_CM / 2.54
+        g_err   = THRESHOLD_G_ERR_CM / 2.54
+        # weight单位 lb -> kg
+        wt_err  = THRESHOLD_WT_ERR_KG / 0.45359237
+    else:
+        len_err = THRESHOLD_LEN_ERR_CM
+        g_err   = THRESHOLD_G_ERR_CM
+        wt_err  = THRESHOLD_WT_ERR_KG
+
+    return len_err, wt_err, g_err
+
+
+# ======================================================
+# 核心：临界值风险判断函数
+# ======================================================
+def check_threshold_warnings(category, L, W, H, G, WT):
+    """
+    返回临界风险提示列表（不阻断渠道判断）
+    """
+    warnings = []
+
+    # 判断该类是否有定义临界库
+    if category not in THRESHOLD_MAP_LABELED:
+        return warnings
+
+    threshold = THRESHOLD_MAP_LABELED[category]
+
+    # 拿到动态误差
+    len_err, wt_err, g_err = normalize_threshold_for_category(category)
+
+    # ---------- 长度 ----------
+    if "L" in threshold:
+        for v, label in threshold["L"].items():
+            if abs(L - v) <= len_err:
+                warnings.append(f"📏 长度临界：L={L:.2f} 接近 **{v}**（{label}）")
+
+    # ---------- 宽度 ----------
+    if "W" in threshold:
+        for v, label in threshold["W"].items():
+            if abs(W - v) <= len_err:
+                warnings.append(f"📏 宽度临界：W={W:.2f} 接近 **{v}**（{label}）")
+
+    # ---------- 高度 ----------
+    if "H" in threshold:
+        for v, label in threshold["H"].items():
+            if abs(H - v) <= len_err:
+                warnings.append(f"📏 高度临界：H={H:.2f} 接近 **{v}**（{label}）")
+
+    # ---------- 周长 ----------
+    if "G" in threshold:
+        for v, label in threshold["G"].items():
+            if abs(G - v) <= g_err:
+                warnings.append(f"📐 周长临界：G={G:.2f} 接近 **{v}**（{label}）")
+
+    # ---------- 重量 ----------
+    if "WT" in threshold:
+        for v, label in threshold["WT"].items():
+            if abs(WT - v) <= wt_err:
+                warnings.append(f"⚖️ 重量临界：WT={WT:.2f} 接近 **{v}**（{label}）")
+
+    return warnings
+
+# ======================================================
 # 统一误差（cm → inch, kg → lb 自动换算）
 # 长/宽/高：2cm 误差
 # 周长：8cm 误差
